@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>照片消除小游戏 - 终极挑战</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: sans-serif;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            margin: 0 0 5px 0;
+            color: #333;
+        }
+
+        .level-indicator {
+            font-size: 14px;
+            color: #666;
+            background: #e4e6eb;
+            padding: 4px 12px;
+            border-radius: 12px;
+            display: inline-block;
+        }
+
+        /* 棋盘区域 */
+        .board {
+            position: relative;
+            background-color: #e0e0e0;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            transition: width 0.3s, height 0.3s;
+        }
+
+        /* 方格图块样式 */
+        .tile {
+            position: absolute;
+            width: 62px;
+            height: 62px;
+            background-color: #fff;
+            border: 3px solid #333;
+            border-radius: 8px;
+            box-sizing: border-box;
+            cursor: pointer;
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
+            transition: transform 0.1s;
+        }
+
+        .tile:hover {
+            transform: scale(1.05);
+        }
+
+        .tile.covered {
+            filter: brightness(0.4);
+            pointer-events: none;
+            cursor: default;
+        }
+
+        .tile.removed {
+            display: none;
+        }
+
+        .tile img {
+            width: 100%;
+            height: 100%;
+            border-radius: 5px;
+            object-fit: cover;
+        }
+
+        /* 底部储物槽 */
+        .slot-container {
+            display: flex;
+            width: 440px;
+            height: 90px;
+            background-color: #8b5a2b;
+            border-radius: 12px;
+            margin-top: 20px;
+            padding: 10px;
+            box-sizing: border-box;
+            justify-content: space-around;
+            align-items: center;
+            box-shadow: inset 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .slot-item {
+            width: 55px;
+            height: 55px;
+            background-color: rgba(255, 255, 255, 0.3);
+            border: 2px dashed #fff;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .slot-item img {
+            width: 100%;
+            height: 100%;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+
+        /* 弹窗样式 */
+        .mask {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+        }
+
+        .mask.hidden {
+            display: none;
+        }
+
+        .dialog {
+            background: #fff;
+            padding: 30px 50px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .dialog h3 {
+            margin-top: 0;
+            font-size: 24px;
+            color: #333;
+        }
+
+        .btn {
+            background-color: #07c160;
+            color: #fff;
+            border: none;
+            padding: 10px 25px;
+            font-size: 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+
+        .btn:hover {
+            background-color: #06ad56;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h2>照片方块消除游戏</h2>
+        <div class="level-indicator" id="levelIndicator">当前关卡：第 1 关</div>
+    </div>
+
+    <!-- 游戏棋盘 -->
+    <div class="board" id="board"></div>
+
+    <!-- 底部储物槽 (7格) -->
+    <div class="slot-container" id="slotContainer">
+        <div class="slot-item"></div>
+        <div class="slot-item"></div>
+        <div class="slot-item"></div>
+        <div class="slot-item"></div>
+        <div class="slot-item"></div>
+        <div class="slot-item"></div>
+        <div class="slot-item"></div>
+    </div>
+
+    <!-- 胜负弹窗 -->
+    <div class="mask hidden" id="mask">
+        <div class="dialog">
+            <h3 id="dialogTitle">恭喜通关！</h3>
+            <button class="btn" id="dialogBtn" onclick="nextLevelOrRestart()">下一关</button>
+        </div>
+    </div>
+
+    <script>
+        const TILE_SIZE = 62;
+
+        // 关卡配置（第二关大幅增加方格数量到 84 个，铺满大半个屏幕）
+        const levels = [
+            {
+                name: "第 1 关：初试身手",
+                photos: ['images/photo1.png', 'images/photo2.png', 'images/photo3.png', 'images/photo4.png'],
+                countPerType: 3, // 总共 12 个方格
+                boardWidth: 380,
+                boardHeight: 380,
+                cols: 4
+            },
+            {
+                name: "第 2 关：地狱难度（海量叠块）",
+                photos: ['images/photo1.png', 'images/photo2.png', 'images/photo3.png', 'images/photo4.png', 'images/photo5.png', 'images/photo6.png', 'images/photo7.png'],
+                countPerType: 12, // 总共 84 个方格，层层交错
+                boardWidth: 460,
+                boardHeight: 560,
+                cols: 7
+            }
+        ];
+
+        let currentLevelIndex = 0;
+        let tiles = [];
+        let slots = new Array(7).fill(null);
+        let gameState = 'playing';
+
+        function initGame() {
+            gameState = 'playing';
+            document.getElementById('mask').classList.add('hidden');
+            slots = new Array(7).fill(null);
+            renderSlots();
+
+            const levelConfig = levels[currentLevelIndex];
+            document.getElementById('levelIndicator').innerText = `当前关卡：${levelConfig.name}`;
+
+            const board = document.getElementById('board');
+            board.style.width = levelConfig.boardWidth + 'px';
+            board.style.height = levelConfig.boardHeight + 'px';
+
+            let typePool = [];
+            levelConfig.photos.forEach(photo => {
+                for (let j = 0; j < levelConfig.countPerType; j++) {
+                    typePool.push(photo);
+                }
+            });
+            typePool.sort(() => Math.random() - 0.5);
+
+            tiles = [];
+            const cols = levelConfig.cols;
+            const step = 50;
+
+            for (let i = 0; i < typePool.length; i++) {
+                let z = Math.floor(i / (cols * 1.5)); // 更多层级
+                let col = i % cols;
+
+                // 制造更加错落交错的随机偏移
+                let randomOffsetX = (i % 5) * 8 - 10;
+                let randomOffsetY = (Math.floor(i / 3) % 5) * 8 - 10;
+
+                let x = col * 55 + 15 + randomOffsetX + (z * 3);
+                let y = Math.floor(i / cols) * 32 + 15 + randomOffsetY;
+
+                if (x + TILE_SIZE > levelConfig.boardWidth) x = levelConfig.boardWidth - TILE_SIZE - 10;
+                if (y + TILE_SIZE > levelConfig.boardHeight) y = levelConfig.boardHeight - TILE_SIZE - 10;
+
+                tiles.push({
+                    id: i,
+                    imagePath: typePool[i],
+                    x: x,
+                    y: y,
+                    zIndex: z,
+                    covered: false,
+                    removed: false
+                });
+            }
+
+            renderBoard();
+            updateCoverStatus();
+        }
+
+        function renderBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+
+            tiles.forEach(tile => {
+                const div = document.createElement('div');
+                div.className = `tile ${tile.covered ? 'covered' : ''} ${tile.removed ? 'removed' : ''}`;
+                div.style.left = tile.x + 'px';
+                div.style.top = tile.y + 'px';
+                div.style.zIndex = tile.zIndex;
+                div.onclick = () => onTapTile(tile.id);
+
+                const img = document.createElement('img');
+                img.src = tile.imagePath;
+                div.appendChild(img);
+
+                board.appendChild(div);
+            });
+        }
+
+        function renderSlots() {
+            const slotContainer = document.getElementById('slotContainer');
+            const slotItems = slotContainer.children;
+
+            for (let i = 0; i < 7; i++) {
+                slotItems[i].innerHTML = '';
+                if (slots[i]) {
+                    const img = document.createElement('img');
+                    img.src = slots[i].imagePath;
+                    slotItems[i].appendChild(img);
+                }
+            }
+        }
+
+        function updateCoverStatus() {
+            for (let i = 0; i < tiles.length; i++) {
+                if (tiles[i].removed) continue;
+                let isCovered = false;
+
+                for (let j = 0; j < tiles.length; j++) {
+                    if (i === j || tiles[j].removed) continue;
+
+                    if (tiles[j].zIndex > tiles[i].zIndex) {
+                        let rA = {x: tiles[i].x, y: tiles[i].y, size: TILE_SIZE};
+                        let rB = {x: tiles[j].x, y: tiles[j].y, size: TILE_SIZE};
+
+                        if (
+                            rA.x < rB.x + rB.size &&
+                            rA.x + rA.size > rB.x &&
+                            rA.y < rB.y + rB.size &&
+                            rA.y + rA.size > rB.y
+                        ) {
+                            isCovered = true;
+                            break;
+                        }
+                    }
+                }
+                tiles[i].covered = isCovered;
+            }
+            renderBoard();
+        }
+
+        function onTapTile(id) {
+            if (gameState !== 'playing') return;
+
+            let tile = tiles.find(t => t.id === id);
+            if (!tile || tile.removed || tile.covered) return;
+
+            tile.removed = true;
+
+            let emptyIndex = slots.indexOf(null);
+            if (emptyIndex !== -1) {
+                slots[emptyIndex] = tile;
+            }
+
+            renderSlots();
+            updateCoverStatus();
+            checkEliminationAndGameOver();
+        }
+
+        function checkEliminationAndGameOver() {
+            let countMap = {};
+            slots.forEach(item => {
+                if (item) {
+                    countMap[item.imagePath] = (countMap[item.imagePath] || 0) + 1;
+                }
+            });
+
+            let eliminatePath = null;
+            for (let path in countMap) {
+                if (countMap[path] >= 3) {
+                    eliminatePath = path;
+                    break;
+                }
+            }
+
+            if (eliminatePath) {
+                let matchedCount = 0;
+                for (let i = 0; i < slots.length; i++) {
+                    if (slots[i] && slots[i].imagePath === eliminatePath && matchedCount < 3) {
+                        slots[i] = null;
+                        matchedCount++;
+                    }
+                }
+
+                let validItems = slots.filter(item => item !== null);
+                while (validItems.length < 7) {
+                    validItems.push(null);
+                }
+                slots = validItems;
+
+                renderSlots();
+                setTimeout(() => checkEliminationAndGameOver(), 200);
+                return;
+            }
+
+            let allCleared = tiles.every(t => t.removed);
+            if (allCleared) {
+                if (currentLevelIndex < levels.length - 1) {
+                    showPopup('闯关成功！🎉', '进入第二关', false);
+                } else {
+                    showPopup('太厉害了！通关全部关卡！🏆', '再玩一次', true);
+                }
+                return;
+            }
+
+            let isFull = slots.every(item => item !== null);
+            if (isFull) {
+                showPopup('游戏结束！槽位满了 😢', '重新挑战当前关', 'retry');
+            }
+        }
+
+        function showPopup(titleText, btnText, mode) {
+            gameState = 'over';
+            document.getElementById('dialogTitle').innerText = titleText;
+            const btn = document.getElementById('dialogBtn');
+            btn.innerText = btnText;
+            btn.dataset.mode = mode;
+            document.getElementById('mask').classList.remove('hidden');
+        }
+
+        function nextLevelOrRestart() {
+            const btn = document.getElementById('dialogBtn');
+            const mode = btn.dataset.mode;
+
+            if (mode === 'retry') {
+                initGame();
+            } else if (currentLevelIndex < levels.length - 1 && mode !== true) {
+                currentLevelIndex++;
+                initGame();
+            } else {
+                currentLevelIndex = 0;
+                initGame();
+            }
+        }
+
+        initGame();
+    </script>
+</body>
+
+</html>
